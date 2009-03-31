@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009, Kargo Global Inc.
+* Copyright (c) 2009, Kargo Global Inc. 
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -82,6 +82,7 @@ PHP_FUNCTION(evhttp_request_body);
 PHP_FUNCTION(evhttp_request_input_buffer);
 PHP_FUNCTION(evhttp_request_find_header);
 PHP_FUNCTION(evhttp_request_add_header);
+PHP_FUNCTION(evhttp_request_get_headers);
 PHP_FUNCTION(evhttp_request_status);
 PHP_FUNCTION(evhttp_request_append_body);
 

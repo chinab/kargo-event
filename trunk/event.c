@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009, Kargo Global Inc.
+* Copyright (c) 2009, Kargo Global Inc. 
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -35,6 +35,7 @@
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "php_event.h"
+#include <sys/queue.h>
 
 /* include libevent header */
 #include <event.h>
@@ -46,6 +47,7 @@
 /* If you declare any globals in php_event.h uncomment this:
 ZEND_DECLARE_MODULE_GLOBALS(event)
 */
+
 
 /* True global resources - no need for thread safety here */
 static int le_evhttp;
@@ -103,6 +105,7 @@ zend_function_entry event_functions[] = {
     PHP_FE(evhttp_request_append_body, NULL)
 	PHP_FE(evhttp_request_input_buffer, NULL)
 	PHP_FE(evhttp_request_find_header, NULL)
+	PHP_FE(evhttp_request_get_headers, NULL)
 	PHP_FE(evhttp_request_add_header, NULL)
 	PHP_FE(evhttp_request_status, NULL)
 	PHP_FE(evbuffer_new, NULL)
@@ -731,6 +734,31 @@ PHP_FUNCTION(evhttp_request_find_header)
     }
     
     ZVAL_STRING(return_value, (char*)headervalue, 1);
+    return; 
+}
+
+PHP_FUNCTION(evhttp_request_get_headers)
+{
+    struct evhttp_request *req;
+    zval *res_req;
+    struct evkeyval *header;
+	struct evkeyvalq *q;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &res_req) == FAILURE)
+    {
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, "Could not fetch resource");
+        RETURN_FALSE;
+    }
+
+    ZEND_FETCH_RESOURCE(req, struct evhttp_request*, &res_req, -1, PHP_EVHTTP_REQUEST_RES_NAME, le_evhttp_request);
+    
+	array_init(return_value);
+	q = req->input_headers;
+	
+    TAILQ_FOREACH (header, q, next)
+	{
+		add_assoc_string(return_value, header->key, header->value, true);
+	}
     return; 
 }
 
