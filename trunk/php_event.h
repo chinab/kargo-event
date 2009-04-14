@@ -78,11 +78,12 @@ PHP_FUNCTION(evhttp_make_request);
  * HTTP Request functions
  */
 PHP_FUNCTION(evhttp_request_uri);
+PHP_FUNCTION(evhttp_request_method);
 PHP_FUNCTION(evhttp_request_body);
 PHP_FUNCTION(evhttp_request_input_buffer);
+PHP_FUNCTION(evhttp_request_headers);
 PHP_FUNCTION(evhttp_request_find_header);
 PHP_FUNCTION(evhttp_request_add_header);
-PHP_FUNCTION(evhttp_request_get_headers);
 PHP_FUNCTION(evhttp_request_status);
 PHP_FUNCTION(evhttp_request_append_body);
 
@@ -93,6 +94,11 @@ PHP_FUNCTION(evbuffer_new);
 PHP_FUNCTION(evbuffer_free);
 PHP_FUNCTION(evbuffer_add);
 PHP_FUNCTION(evbuffer_readline);
+
+/*
+ * Response functions
+ */
+PHP_FUNCTION(evhttp_response_set);
 
 /*
  * Buffered Events
@@ -132,6 +138,8 @@ ZEND_END_MODULE_GLOBALS(event)
 #define PHP_EVHTTP_REQUEST_RES_NAME "EVHTTP Request"
 #define PHP_EVHTTP_CONNECTION_RES_NAME "EVHTTP Connection"
 #define PHP_EVBUFFER_RES_NAME "EVBUFFER"
+#define PHP_EVHTTP_RESPONSE_RES_NAME "EVHTTP Response"
+
 
 /* In every utility function you add that needs to use variables
    in php_event_globals, call TSRMLS_FETCH(); after declaring other
@@ -191,6 +199,18 @@ typedef struct _php_httpcon
 	zval *c_cb;
 } php_httpcon;
 
+/*
+ * Custom event struct that has a http response code and message associated
+ * with the buffer. Note that libevent uses the evhttp_request struct for
+ * both requests and responses -- this just keeps things cleaner for PHP.
+ */
+typedef struct _evhttp_response
+{
+	int res_code;
+	char* res_message;
+	char* res_body;
+	int res_body_len;
+} evhttp_response;
 
 #endif	/* PHP_EVENT_H */
 
