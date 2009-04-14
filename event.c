@@ -35,7 +35,10 @@
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "php_event.h"
+
+#ifndef HAVE_TAILQFOREACH
 #include <sys/queue.h>
+#endif
 
 /* include libevent header */
 #include <event.h>
@@ -56,6 +59,7 @@ static int le_evbuffer;
 static int le_event;
 static int le_bufferevent;
 static int le_evhttp_connection;
+static int le_evhttp_response;
 
 static struct event_base *current_base; 
 
@@ -65,6 +69,7 @@ static void bufferevent_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC);
 static void evhttp_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC);
 static void evhttp_request_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC);
 static void evhttp_connection_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC);
+static void evhttp_response_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC);
 
 /* Function argument info decarations */
 #ifdef ZEND_ENGINE_2
@@ -101,13 +106,15 @@ zend_function_entry event_functions[] = {
     PHP_FE(evhttp_make_request, NULL)
     PHP_FE(evhttp_set_gencb, NULL)
     PHP_FE(evhttp_request_uri, NULL)
+    PHP_FE(evhttp_request_method, NULL)
     PHP_FE(evhttp_request_body, NULL)
     PHP_FE(evhttp_request_append_body, NULL)
 	PHP_FE(evhttp_request_input_buffer, NULL)
 	PHP_FE(evhttp_request_find_header, NULL)
-	PHP_FE(evhttp_request_get_headers, NULL)
+        PHP_FE(evhttp_request_headers, NULL)
 	PHP_FE(evhttp_request_add_header, NULL)
 	PHP_FE(evhttp_request_status, NULL)
+        PHP_FE(evhttp_response_set, NULL)
 	PHP_FE(evbuffer_new, NULL)
     PHP_FE(evbuffer_free, NULL)
     PHP_FE(evbuffer_add, NULL)
@@ -186,7 +193,8 @@ PHP_MINIT_FUNCTION(event)
     le_evbuffer = zend_register_list_destructors_ex(NULL, NULL, PHP_EVBUFFER_RES_NAME, module_number);
     le_event = zend_register_list_destructors_ex(event_dtor, NULL, PHP_EVENT_RES_NAME, module_number);
     le_bufferevent = zend_register_list_destructors_ex(bufferevent_dtor, NULL, PHP_BUFFEREVENT_RES_NAME, module_number);
-    
+        le_evhttp_response = zend_register_list_destructors_ex(evhttp_response_dtor, NULL, PHP_EVHTTP_RESPONSE_RES_NAME, module_number);
+
     /* libevent constants */
     REGISTER_LONG_CONSTANT("EV_READ", EV_READ, CONST_CS | CONST_PERSISTENT);
     REGISTER_LONG_CONSTANT("EV_WRITE", EV_WRITE, CONST_CS | CONST_PERSISTENT);
@@ -335,6 +343,20 @@ static void evhttp_request_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 static void evhttp_connection_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)
 {
     evhttp_connection_free((struct evhttp_connection*)rsrc->ptr);
+}
+
+/*
+ * Destructor for our evhttp_response resource
+ */
+static void evhttp_response_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC)
+{
+    evhttp_response *r = (evhttp_response*)rsrc->ptr;
+    free(r->res_message);
+    if (r->res_body_len > 0) 
+    {
+        free(r->res_body);
+    }
+    free(r);
 }
 
 
@@ -563,6 +585,33 @@ PHP_FUNCTION(event_free)
 
 }
 
+
+PHP_FUNCTION(evhttp_response_set)
+{
+        long http_code;
+        char *content, *http_message;
+        int content_len, http_message_len;
+        evhttp_response *response;
+
+        if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sls", &content, &content_len, &http_code, &http_message, &http_message_len) == FAILURE)
+        {
+            RETURN_FALSE;
+        }
+
+        /* TODO: use evbuffer here, instead of passing string around in the struct */
+        response = malloc(sizeof(evhttp_response));
+        response->res_code = http_code;
+        response->res_message = strdup(http_message);
+        response->res_body_len = content_len;
+        if (content_len > 0) 
+        {
+            response->res_body = malloc(content_len+1);
+            memcpy(response->res_body, content, content_len);
+        }       
+
+        ZEND_REGISTER_RESOURCE(return_value, response, le_evhttp_response);
+}
+
 void php_callback_handler(struct evhttp_request *req, void *arg)  
 {  
     zval *cb;
@@ -572,19 +621,22 @@ void php_callback_handler(struct evhttp_request *req, void *arg)
     cb = (zval*)arg;
     int res;
     struct evbuffer *buf;
+    evhttp_response *response;
     char *str;
     int str_len;
-    int res_id;
+    int res_id; 
+    void *retval_res;
+    int retval_res_type;
 
     /* pass the request as a php resource */
     MAKE_STD_ZVAL(req_resource);
     res_id = zend_register_resource(req_resource, req, le_evhttp_request);
     params[0] = &req_resource;
-	
+
     res = call_user_function_ex(EG(function_table), NULL, cb, &retval, 1, params, 0, NULL TSRMLS_CC);
 
     /* free resource */
-	req->cb_arg = NULL;
+    req->cb_arg = NULL;
     zend_list_delete(res_id);
     FREE_ZVAL(req_resource);
 
@@ -596,40 +648,51 @@ void php_callback_handler(struct evhttp_request *req, void *arg)
         evhttp_send_reply(req, HTTP_SERVUNAVAIL, "ERR", buf);
         return;
     }
-    
+
     switch (retval->type)
     {
-        case IS_RESOURCE:
-            buf = (struct evbuffer*) zend_fetch_resource(&retval TSRMLS_CC, -1, PHP_EVBUFFER_RES_NAME, NULL, 1, le_evbuffer);
-            if (!buf)
+       case IS_RESOURCE:
+            /* the callback is allowed to return either a simple evbuffer, or
+             * a custom response (incl. response code/message) */
+            retval_res = zend_list_find(Z_RESVAL_P(retval), &retval_res_type);
+            if (retval_res_type == le_evbuffer)
             {
+                buf = (struct evbuffer*) retval_res;
+                /* got a evbuffer back. send it! */
+                evhttp_send_reply(req, HTTP_OK, "OK", buf);
+            } else if (retval_res_type == le_evhttp_response) {
+                /* got a response resource back */
+                response = (evhttp_response *) retval_res;
+                buf = evbuffer_new();
+                if (response->res_body_len > 0) 
+                {
+                    evbuffer_add(buf, response->res_body, response->res_body_len);
+                }
+                evhttp_send_reply(req, response->res_code, response->res_message, buf);
+            } else {
                 /* We got the wrong resource type */
                 php_error_docref(NULL TSRMLS_CC, E_WARNING, "Request callback returned illegal resource");
                 buf = evbuffer_new();
                 evhttp_send_reply(req, HTTP_SERVUNAVAIL, "ERR", buf);
             }
-            else
-            {
-                /* got a evbuffer back. send it! */
-                evhttp_send_reply(req, HTTP_OK, "OK", buf);
-            }
-        break;
+            break;
 
-        case IS_STRING:
-            /* return value was a string */
-            str = Z_STRVAL_P(retval);
-            str_len = Z_STRLEN_P(retval);
-            buf = evbuffer_new();
-            evbuffer_add(buf, str, str_len);
-            evhttp_send_reply(req, HTTP_OK, "OK", buf);
-        break;
+       case IS_STRING:
+           /* return value was a string */
+           str = Z_STRVAL_P(retval);
+           str_len = Z_STRLEN_P(retval);
+           buf = evbuffer_new();
+           evbuffer_add(buf, str, str_len);
+           evhttp_send_reply(req, HTTP_OK, "OK", buf);
+           break;
 
-        default:
-            /* We got nothing back from user callback */
-            php_error_docref(NULL TSRMLS_CC, E_WARNING, "Request callback returned wrong datatype");
-            buf = evbuffer_new();
-            evhttp_send_reply(req, HTTP_OK, "OK", buf);
+       default:
+           /* We got nothing back from user callback */
+           php_error_docref(NULL TSRMLS_CC, E_WARNING, "Request callback returned wrong datatype");
+           buf = evbuffer_new();
+           evhttp_send_reply(req, HTTP_OK, "OK", buf);
     }
+    
     zval_ptr_dtor(&retval);
     evbuffer_free(buf);
     return;
@@ -649,13 +712,15 @@ PHP_FUNCTION(evhttp_start)
 
     httpd = evhttp_start(listen_ip, port);
 
-
     if (!httpd) 
     {
         php_error_docref(NULL TSRMLS_CC, E_WARNING,
                 "Error binding httpd on %s port %d", listen_ip, port);
         RETURN_FALSE;
     }
+
+    /* Set timeout to a reasonably short value for performance [BB-MH] */
+    evhttp_set_timeout(httpd, 10);
     
     ZEND_REGISTER_RESOURCE(return_value, httpd, le_evhttp);
 }
@@ -712,6 +777,41 @@ PHP_FUNCTION(evhttp_request_uri)
     return; 
 }
 
+PHP_FUNCTION(evhttp_request_method)
+{
+        struct evhttp_request *req;
+        zval *res_req;
+        
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r", &res_req) == FAILURE)
+    {
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, "Could not fetch resource");
+        RETURN_FALSE;
+    }
+
+        ZEND_FETCH_RESOURCE(req, struct evhttp_request*, &res_req, -1, PHP_EVHTTP_REQUEST_RES_NAME, le_evhttp_request);
+        /* replicate logic of libevent's internal method (evhttp_method), which isn't exposed in the library */
+        switch (req->type) {
+                case EVHTTP_REQ_GET:
+                        RETURN_STRING("GET", 1);
+                case EVHTTP_REQ_POST:
+                        RETURN_STRING("POST", 1);
+                case EVHTTP_REQ_HEAD:
+                        RETURN_STRING("HEAD", 1);
+                case EVHTTP_REQ_PUT:
+                        RETURN_STRING("PUT", 1);
+                case EVHTTP_REQ_DELETE:
+                        RETURN_STRING("DELETE", 1);
+                case EVHTTP_REQ_OPTIONS:
+                        RETURN_STRING("OPTIONS", 1);
+                case EVHTTP_REQ_TRACE:
+                        RETURN_STRING("TRACE", 1);
+                case EVHTTP_REQ_CONNECT:
+                        RETURN_STRING("CONNECT", 1);
+                default:
+                        RETURN_NULL();
+        }
+}
+
 PHP_FUNCTION(evhttp_request_find_header)
 {
     struct evhttp_request *req;
@@ -737,7 +837,7 @@ PHP_FUNCTION(evhttp_request_find_header)
     return; 
 }
 
-PHP_FUNCTION(evhttp_request_get_headers)
+PHP_FUNCTION(evhttp_request_headers)
 {
     struct evhttp_request *req;
     zval *res_req;
@@ -1099,9 +1199,9 @@ PHP_FUNCTION(bufferevent_new)
     /* call libevent */
     if (NULL == (e = bufferevent_new(fd, callback_buffered_on_read, callback_buffered_on_write, callback_buffered_on_error, be)))
     {
-    	ZVAL_DEL(be->r_cb);
-    	ZVAL_DEL(be->w_cb);
-    	ZVAL_DEL(be->e_cb);
+        ZVAL_DELREF(be->r_cb);
+        ZVAL_DELREF(be->w_cb);
+        ZVAL_DELREF(be->e_cb);
     	free(be);
     	php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not create bufferevent");
     	RETURN_FALSE;
@@ -1488,7 +1588,7 @@ PHP_FUNCTION(evhttp_request_new)
     /* call libevent */
     if (NULL == (r = evhttp_request_new(callback_request_on_complete, he)))
     {
-    	ZVAL_DEL(he->r_cb);
+        ZVAL_DELREF(he->r_cb);
     	free(he);
     	php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not create httpevent");
     	RETURN_FALSE;
