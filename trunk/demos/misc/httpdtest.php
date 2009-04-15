@@ -39,7 +39,7 @@ function test_callback($evhttp_request)
     echo "URI: $uri\n";
     echo "Content-Type: $ct\n";
 
-    print_r(evhttp_request_get_headers($evhttp_request));
+    print_r(evhttp_request_headers($evhttp_request));
     echo evhttp_request_body($evhttp_request);
 
     return "It works!";
