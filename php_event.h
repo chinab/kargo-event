@@ -99,6 +99,7 @@ PHP_FUNCTION(evbuffer_readline);
  * Response functions
  */
 PHP_FUNCTION(evhttp_response_set);
+PHP_FUNCTION(evhttp_response_add_header);
 
 /*
  * Buffered Events

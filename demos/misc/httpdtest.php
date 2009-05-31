@@ -30,9 +30,8 @@
 
 function test_callback($evhttp_request)
 {
-    echo "used memory: ".memory_get_usage()." and real memory from system: ".memory_get_usage(true)."\n";
-    //print_r(getrusage());
-    //print_r($evhttp_request);
+    echo "script-land memory: ".memory_get_usage()." and real memory from system: ".memory_get_usage(true)."\n";
+
     $uri = evhttp_request_uri($evhttp_request);
 
     $ct = evhttp_request_find_header($evhttp_request, 'Content-Type');
@@ -41,8 +40,9 @@ function test_callback($evhttp_request)
 
     print_r(evhttp_request_headers($evhttp_request));
     echo evhttp_request_body($evhttp_request);
+	evhttp_response_add_header($evhttp_request, "Content-Type", "text/plain");
 
-    return "It works!";
+ 	return evhttp_response_set("Hello World!", 200, "OK");
 }
 
 

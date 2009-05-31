@@ -111,10 +111,11 @@ zend_function_entry event_functions[] = {
     PHP_FE(evhttp_request_append_body, NULL)
 	PHP_FE(evhttp_request_input_buffer, NULL)
 	PHP_FE(evhttp_request_find_header, NULL)
-        PHP_FE(evhttp_request_headers, NULL)
+    PHP_FE(evhttp_request_headers, NULL)
 	PHP_FE(evhttp_request_add_header, NULL)
 	PHP_FE(evhttp_request_status, NULL)
-        PHP_FE(evhttp_response_set, NULL)
+    PHP_FE(evhttp_response_set, NULL)
+	PHP_FE(evhttp_response_add_header, NULL)
 	PHP_FE(evbuffer_new, NULL)
     PHP_FE(evbuffer_free, NULL)
     PHP_FE(evbuffer_add, NULL)
@@ -588,28 +589,28 @@ PHP_FUNCTION(event_free)
 
 PHP_FUNCTION(evhttp_response_set)
 {
-        long http_code;
-        char *content, *http_message;
-        int content_len, http_message_len;
-        evhttp_response *response;
+    long http_code;
+	char *content, *http_message;
+	int content_len, http_message_len;
+	evhttp_response *response;
 
-        if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sls", &content, &content_len, &http_code, &http_message, &http_message_len) == FAILURE)
-        {
-            RETURN_FALSE;
-        }
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sls", &content, &content_len, &http_code, &http_message, &http_message_len) == FAILURE)
+	{
+	    RETURN_FALSE;
+	}
 
-        /* TODO: use evbuffer here, instead of passing string around in the struct */
-        response = malloc(sizeof(evhttp_response));
-        response->res_code = http_code;
-        response->res_message = strdup(http_message);
-        response->res_body_len = content_len;
-        if (content_len > 0) 
-        {
-            response->res_body = malloc(content_len+1);
-            memcpy(response->res_body, content, content_len);
-        }       
+	/* TODO: use evbuffer here, instead of passing string around in the struct */
+	response = malloc(sizeof(evhttp_response));
+	response->res_code = http_code;
+	response->res_message = strdup(http_message);
+	response->res_body_len = content_len;
+	if (content_len > 0) 
+	{
+	    response->res_body = malloc(content_len+1);
+	    memcpy(response->res_body, content, content_len);
+	}       
 
-        ZEND_REGISTER_RESOURCE(return_value, response, le_evhttp_response);
+	ZEND_REGISTER_RESOURCE(return_value, response, le_evhttp_response);
 }
 
 void php_callback_handler(struct evhttp_request *req, void *arg)  
@@ -664,7 +665,7 @@ void php_callback_handler(struct evhttp_request *req, void *arg)
                 /* got a response resource back */
                 response = (evhttp_response *) retval_res;
                 buf = evbuffer_new();
-                if (response->res_body_len > 0) 
+                if (response->res_body_len > 0)
                 {
                     evbuffer_add(buf, response->res_body, response->res_body_len);
                 }
@@ -876,6 +877,29 @@ PHP_FUNCTION(evhttp_request_add_header)
     }
 
     ZEND_FETCH_RESOURCE(req, struct evhttp_request*, &res_req, -1, PHP_EVHTTP_REQUEST_RES_NAME, le_evhttp_request);
+    if (evhttp_add_header(req->input_headers, headername, headervalue) != 0)
+    {
+    	RETURN_FALSE;
+    }
+    
+    RETURN_TRUE; 
+}
+
+PHP_FUNCTION(evhttp_response_add_header)
+{
+    struct evhttp_request *req;
+    zval *res_req;
+    char *headername, *headervalue;
+    int headername_len, headervalue_len;
+    
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rss", &res_req, &headername, &headername_len, &headervalue, &headervalue_len) == FAILURE)
+    {
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, "error reading parameters");
+        RETURN_FALSE;
+    }
+
+    ZEND_FETCH_RESOURCE(req, struct evhttp_request*, &res_req, -1, PHP_EVHTTP_REQUEST_RES_NAME, le_evhttp_request);
+	// NOTE: only difference of response headers is below
     if (evhttp_add_header(req->output_headers, headername, headervalue) != 0)
     {
     	RETURN_FALSE;
@@ -883,6 +907,7 @@ PHP_FUNCTION(evhttp_request_add_header)
     
     RETURN_TRUE; 
 }
+
 
 PHP_FUNCTION(evhttp_request_status)
 {
