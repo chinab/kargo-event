@@ -6,7 +6,7 @@ CREATE TABLE `user` (
   `name` varchar(32) NOT NULL,
   `password` varchar(32) NOT NULL,
   PRIMARY KEY (`id`)
-} ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 CREATE TABLE `poll` (
   `id` int(11) NOT NULL auto_increment,
