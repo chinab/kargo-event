@@ -18,6 +18,8 @@ class Model_Table_User extends Zend_Db_Table_Abstract
 	
 	/**
 	 * Return one and only one instance of the object
+	 *
+	 * @return Model_Table_User
 	 */
 	static public function instance()
 	{
@@ -26,4 +28,19 @@ class Model_Table_User extends Zend_Db_Table_Abstract
 		return self::$_instance;
 	}
 	
+	/**
+	 * authenticate a name/password combo
+	 *
+	 * @param string $name
+	 * @param string $password
+	 * @return Zend_Db_Table_Row
+	 */
+	public function authenticate($name, $password)
+	{
+	    $db = $this->getAdapter();
+	    $where = $db->quoteInto('name = ?', $name) . ' AND ' .
+	        $db->quoteInto('password = MD5(?)', $password);
+        
+	    return $this->fetchRow($where);
+	}
 }
