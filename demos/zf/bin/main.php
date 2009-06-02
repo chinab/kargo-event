@@ -19,12 +19,12 @@ class AppServer
 	private function _startupSuperGlobal()
 	{
 		// manually set server vars
-		$_SERVER[ "DOCUMENT_ROOT" ] = "/Users/flo/Code/Services/htdocs";
+		$_SERVER[ "DOCUMENT_ROOT" ] = realpath(dirname(__FILE__) . '/../public');
         $_SERVER[ "SCRIPT_FILENAME" ] = "main.php";
         $_SERVER[ "PHP_SELF" ] = "main.php";
         $_SERVER[ "SCRIPT_NAME" ] = 'main.php';
-        $_SERVER[ "SERVER_ADDR" ] = "$addr:$port";
-        $_SERVER[ "SERVER_NAME" ] = "$addr:$port";
+        $_SERVER[ "SERVER_ADDR" ] = "{$this->addr}:{$this->port}";
+        $_SERVER[ "SERVER_NAME" ] = "{$this->addr}:{$this->port}";
         $_SERVER[ "SERVER_SOFTWARE" ] = "EvHttp ZF Application Server 0.1";
 		$_SERVER[ "SERVER_PROTOCOL" ] = 'HTTP 1.1';
 	}
