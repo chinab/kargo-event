@@ -12,7 +12,11 @@ First, using Subversion, check out the project using the directions on this page
 Next, make sure you have libevent 1.4.9. get it from:
 http://monkey.org/~provos/libevent-1.4.9-stable.tar.gz (located on this page: http://monkey.org/~provos/libevent/)
 
-The next step is patching libevent 1.4.9 with the patch file available at /patches/bb_libevent_http_verbs.patch
+The next step is patching libevent 1.4.9 with the patch file available at /patches/bb_libevent_http_verbs.patch. In the 'libevent-1.4.9-stable' directory type:
+
+<code>
+patch -i path/to/kargo-event/patches/bb_libevent_http_verbs.patch
+</code>
 
 After you've done that, in the patched libevent directory type:
 <code>
