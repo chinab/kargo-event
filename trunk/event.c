@@ -73,7 +73,6 @@ static void evhttp_response_dtor(zend_rsrc_list_entry *rsrc TSRMLS_DC);
 
 /* Function argument info decarations */
 #ifdef ZEND_ENGINE_2
-static
     ZEND_BEGIN_ARG_INFO(bufferevent_read_byref_arginfo, 0)
         ZEND_ARG_PASS_INFO(0)
         ZEND_ARG_PASS_INFO(1)
